@@ -7,7 +7,7 @@ from openpyxl.cell.cell import MergedCell
 from openpyxl.utils import get_column_letter
 import os
 
-# === Configuration ===
+# === Define Tower and File Names ===
 tower_groups = [
     {
         "name": "City Cores",
@@ -27,6 +27,7 @@ base_filename = "20250411_M46_JV3.1_{}.xlsm"
 source_sheet = "HeatMap"
 target_file = "Summary.xlsx"
 
+# === Define Data Number and Data Ranges ===
 target_start_row = 3
 target_start_col = 2
 data_row_count = 113
@@ -66,6 +67,7 @@ fields = [
     },
 ]
 
+# === Format Settings ===
 thin_border = Border(
     left=Side(style='thin', color='AAAAAA'),
     right=Side(style='thin', color='AAAAAA'),
@@ -74,16 +76,38 @@ thin_border = Border(
 )
 center_align = Alignment(horizontal='center', vertical='center')
 
-tgt_wb = Workbook()
-default_sheet = tgt_wb.active
-tgt_wb.remove(default_sheet)
+# === Load or Create Workbook ===
+if os.path.exists(target_file):
+    print("📄 Loading existing Summary.xlsx...")
+    tgt_wb = load_workbook(target_file)
+else:
+    print("🆕 Creating new Summary.xlsx...")
+    tgt_wb = Workbook()
+    default_sheet = tgt_wb.active
+    tgt_wb.remove(default_sheet)
+
 
 for field in fields:
     sheet_name = field["sheet"]
-    tgt_ws = tgt_wb.create_sheet(title=sheet_name)
-    tgt_ws.delete_rows(1, tgt_ws.max_row)
-    tgt_ws.delete_cols(1, tgt_ws.max_column)
+    if sheet_name in tgt_wb.sheetnames:
+        tgt_ws = tgt_wb[sheet_name]
+
+        # ✅ 清空 A~GV 區塊的內容與格式，保留 GW 欄之後
+        for row in tgt_ws.iter_rows(min_row=1, max_row=tgt_ws.max_row, min_col=1, max_col=204):
+            for cell in row:
+                if isinstance(cell, MergedCell):
+                    continue
+                cell.value = None
+                cell.border = None
+                cell.alignment = None
+                cell.font = None
+                cell.fill = None
+
+    else:
+        tgt_ws = tgt_wb.create_sheet(title=sheet_name)
+
     current_col = target_start_col
+
 
     for group in tower_groups:
         group_name = group["name"]
@@ -92,13 +116,15 @@ for field in fields:
         layout = group["layout"]
         towers_per_row = 4 if layout == "4-over-4" else 2
         source_range = field["range_by_group"][group_name]
-
+        
+        # === Create Total Columns for each Group ===
         group_width = towers_per_row * (col_span + 1) - 1
         tgt_ws.merge_cells(start_row=1, start_column=current_col,
                            end_row=1, end_column=current_col + group_width - 1)
         tgt_ws.cell(row=1, column=current_col).value = group_name
 
         for row_idx in range(2):
+            # === Paste Data of each Tower ===
             row_base = target_start_row + row_idx * (data_row_count + 2)
             row_towers = towers[row_idx * towers_per_row:(row_idx + 1) * towers_per_row]
 
@@ -111,15 +137,18 @@ for field in fields:
                     continue
 
                 try:
+                    # === Open Source File and Read Data ===
                     src_wb = load_workbook(file_path, data_only=True, read_only=True)
                     src_ws = src_wb[source_sheet]
                     dcr_values = src_ws[source_range[0]:source_range[1]]
                 except Exception as e:
                     print(f"❌ Error reading {tower}: {e}")
                     continue
-
+                
+                # === Paste Tower Title ===
                 tgt_ws.cell(row=row_base, column=col_base + 1).value = f"Tower {tower}"
 
+                # === Write DCRs and Formats ===
                 for i_row, row in enumerate(dcr_values):
                     for j, cell in enumerate(row):
                         val = cell.value
@@ -133,6 +162,8 @@ for field in fields:
                         cell.alignment = center_align
                         cell.border = thin_border
 
+                
+                # === Formatting Color Scale for DCRs ===
                 pier_start = col_base + 1
                 pier_end = col_base + col_span -1
                 tgt_ws.conditional_formatting.add(
@@ -148,6 +179,7 @@ for field in fields:
 
         current_col += group_width + 1
 
+    # === Autofit Column Width ===
     for col_cells in tgt_ws.columns:
         first_cell = next((cell for cell in col_cells if not isinstance(cell, MergedCell)), None)
         if first_cell is None:
@@ -164,4 +196,4 @@ for field in fields:
 
 # === Save workbook ===
 tgt_wb.save(target_file)
-print("🎉 Summary.xlsx 完成：對齊 + 自動欄寬 + 單欄 Story + 條件格式 + 框線！")
+print("🎉 Summary.xlsx Completed！")
