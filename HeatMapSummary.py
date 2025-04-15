@@ -1,106 +1,167 @@
+# Final version: City/Portal Cores with alignment + auto-fit column widths + full borders (single Story column)
+
 from openpyxl import load_workbook, Workbook
+from openpyxl.styles import Alignment, Border, Side
+from openpyxl.formatting.rule import ColorScaleRule
+from openpyxl.cell.cell import MergedCell
+from openpyxl.utils import get_column_letter
 import os
 
 # === Configuration ===
-tower_list = ["P1", "P2", "P3", "P4"]
+tower_groups = [
+    {
+        "name": "City Cores",
+        "towers": ["N1", "N2", "N3", "N4", "S1", "S2", "S3", "S4"],
+        "col_span": 30,
+        "layout": "4-over-4"
+    },
+    {
+        "name": "Portal Cores",
+        "towers": ["P1", "P2", "P3", "P4"],
+        "col_span": 39,
+        "layout": "2-over-2"
+    }
+]
+
 base_filename = "20250411_M46_JV3.1_{}.xlsm"
 source_sheet = "HeatMap"
 target_file = "Summary.xlsx"
 
-# Each tower occupies 37 piers + 1 blank column = 39 columns
-tower_column_span = 39
-target_start_row = 2  # Paste begins at row 2 (B2)
-target_start_col = 2  # Column B = 2
-data_row_count = 113  # Number of data rows
-# test
-# === Field settings ===
+target_start_row = 3
+target_start_col = 2
+data_row_count = 113
+
 fields = [
     {
         "name": "V_DCR",
-        "range": ("DR3", "FC115"),
-        "sheet": "SummaryVDCR"
+        "sheet": "SummaryVDCR",
+        "range_by_group": {
+            "City Cores": ("CS3", "DU114"),
+            "Portal Cores": ("DR3", "FC115")
+        }
     },
     {
         "name": "Vmax_DCR",
-        "range": ("FE3", "GP115"),
-        "sheet": "SummaryVmax"
+        "sheet": "SummaryVmax",
+        "range_by_group": {
+            "City Cores": ("DX3", "EZ114"),
+            "Portal Cores": ("FE3", "GP115")
+        }
     },
     {
         "name": "PC_DCR",
-        "range": ("GR3", "IC115"),
-        "sheet": "SummaryPCDCR"
+        "sheet": "SummaryPCDCR",
+        "range_by_group": {
+            "City Cores": ("FC3", "GE114"),
+            "Portal Cores": ("GR3", "IC115")
+        }
     },
     {
         "name": "PT_DCR",
-        "range": ("IE3", "JP115"),
-        "sheet": "SummaryPTDCR"
-    }
+        "sheet": "SummaryPTDCR",
+        "range_by_group": {
+            "City Cores": ("GH3", "HJ114"),
+            "Portal Cores": ("IE3", "JP115")
+        }
+    },
 ]
 
-# === Load or create target workbook ===
-if os.path.exists(target_file):
-    print("📄 Loading existing Summary.xlsx...")
-    tgt_wb = load_workbook(target_file)
-else:
-    print("🆕 Creating new Summary.xlsx...")
-    tgt_wb = Workbook()
-    # Clear the default sheet if it exists
-    default_sheet = tgt_wb.active
-    if default_sheet and default_sheet.title == "Sheet":
-        tgt_wb.remove(default_sheet)
+thin_border = Border(
+    left=Side(style='thin', color='AAAAAA'),
+    right=Side(style='thin', color='AAAAAA'),
+    top=Side(style='thin', color='AAAAAA'),
+    bottom=Side(style='thin', color='AAAAAA')
+)
+center_align = Alignment(horizontal='center', vertical='center')
 
-# === Process each field (per sheet) ===
+tgt_wb = Workbook()
+default_sheet = tgt_wb.active
+tgt_wb.remove(default_sheet)
+
 for field in fields:
     sheet_name = field["sheet"]
-    source_range = field["range"]
+    tgt_ws = tgt_wb.create_sheet(title=sheet_name)
+    tgt_ws.delete_rows(1, tgt_ws.max_row)
+    tgt_ws.delete_cols(1, tgt_ws.max_column)
+    current_col = target_start_col
 
-    # Create or get the worksheet
-    if sheet_name in tgt_wb.sheetnames:
-        tgt_ws = tgt_wb[sheet_name]
-    else:
-        print(f"🆕 Creating sheet: {sheet_name}")
-        tgt_ws = tgt_wb.create_sheet(title=sheet_name)
+    for group in tower_groups:
+        group_name = group["name"]
+        towers = group["towers"]
+        col_span = group["col_span"]
+        layout = group["layout"]
+        towers_per_row = 4 if layout == "4-over-4" else 2
+        source_range = field["range_by_group"][group_name]
 
-    # Clear header (row 1-2) and body (row 2-114) before pasting
-    print(f"\n🧹 Clearing old data in {sheet_name}...")
-    for col in range(target_start_col, target_start_col + len(tower_list) * tower_column_span + 1):
-        tgt_ws.cell(row=1, column=col).value = None
-        tgt_ws.cell(row=2, column=col).value = None
-        for row in range(target_start_row, target_start_row + data_row_count):
-            tgt_ws.cell(row=row, column=col).value = None
+        group_width = towers_per_row * (col_span + 1) - 1
+        tgt_ws.merge_cells(start_row=1, start_column=current_col,
+                           end_row=1, end_column=current_col + group_width - 1)
+        tgt_ws.cell(row=1, column=current_col).value = group_name
 
-    # === Process each tower ===
-    for idx, tower in enumerate(tower_list):
-        source_file = base_filename.format(tower)
-        start_col = target_start_col + idx * tower_column_span
+        for row_idx in range(2):
+            row_base = target_start_row + row_idx * (data_row_count + 2)
+            row_towers = towers[row_idx * towers_per_row:(row_idx + 1) * towers_per_row]
 
-        print(f"\n🚧 Processing {field['name']} for Tower {tower} → starting column {start_col}...")
+            for i, tower in enumerate(row_towers):
+                col_base = current_col + i * (col_span + 1)
+                file_path = base_filename.format(tower)
 
-        if not os.path.exists(source_file):
-            print(f"❌ File not found: {source_file} → Skipping.")
+                if not os.path.exists(file_path):
+                    print(f"🔸 Skipping {tower} (file not found)")
+                    continue
+
+                try:
+                    src_wb = load_workbook(file_path, data_only=True, read_only=True)
+                    src_ws = src_wb[source_sheet]
+                    dcr_values = src_ws[source_range[0]:source_range[1]]
+                except Exception as e:
+                    print(f"❌ Error reading {tower}: {e}")
+                    continue
+
+                tgt_ws.cell(row=row_base, column=col_base + 1).value = f"Tower {tower}"
+
+                for i_row, row in enumerate(dcr_values):
+                    for j, cell in enumerate(row):
+                        val = cell.value
+                        if isinstance(val, (float, int)):
+                            val = round(val, 2)
+                        tgt_ws.cell(row=row_base + 1 + i_row, column=col_base + 1 + j).value = val
+
+                for r in range(row_base + 1, row_base + 1 + data_row_count):
+                    for c in range(col_base, col_base + col_span):
+                        cell = tgt_ws.cell(row=r, column=c)
+                        cell.alignment = center_align
+                        cell.border = thin_border
+
+                pier_start = col_base + 1
+                pier_end = col_base + col_span -1
+                tgt_ws.conditional_formatting.add(
+                    f"{tgt_ws.cell(row=row_base + 1, column=pier_start).coordinate}:{tgt_ws.cell(row=row_base + data_row_count, column=pier_end).coordinate}",
+                    ColorScaleRule(
+                        start_type='num', start_value=0.6, start_color='C6E0B4',
+                        mid_type='num', mid_value=0.8, mid_color='FFEB84',
+                        end_type='num', end_value=1.05, end_color='F8696B'
+                    )
+                )
+
+                print(f"✅ Finished: {field['name']} - {tower}")
+
+        current_col += group_width + 1
+
+    for col_cells in tgt_ws.columns:
+        first_cell = next((cell for cell in col_cells if not isinstance(cell, MergedCell)), None)
+        if first_cell is None:
             continue
+        col_letter = get_column_letter(first_cell.column)
+        max_len = 0
+        for cell in col_cells:
+            try:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            except:
+                pass
+        tgt_ws.column_dimensions[col_letter].width = max_len + 1
 
-        try:
-            src_wb = load_workbook(source_file, data_only=True, read_only=True)
-            src_ws = src_wb[source_sheet]
-        except Exception as e:
-            print(f"❌ Failed to open {source_file}: {e}")
-            continue
-
-        print(f"📊 Reading range {source_range[0]}:{source_range[1]}...")
-        dcr_values = src_ws[source_range[0]:source_range[1]]
-
-        # Add header "Tower Px"
-        tgt_ws.cell(row=1, column=start_col).value = f"Tower {tower}"
-
-        print(f"✍️  Pasting data into {sheet_name}...")
-        for i, row in enumerate(dcr_values):
-            for j, cell in enumerate(row):
-                tgt_ws.cell(row=target_start_row + i, column=start_col + j).value = cell.value
-
-        print(f"✅ Finished pasting {tower} for {field['name']}.")
-
-# === Save the workbook ===
-print("\n💾 Saving all results to Summary.xlsx...")
+# === Save workbook ===
 tgt_wb.save(target_file)
-print("🎉 All data pasted successfully!")
+print("🎉 Summary.xlsx 完成：對齊 + 自動欄寬 + 單欄 Story + 條件格式 + 框線！")
